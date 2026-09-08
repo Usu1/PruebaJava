@@ -1,0 +1,99 @@
+# Configuración del gestor de chat de Twitch.
+# Copia este fichero como chat-manager.yml y ajusta los valores.
+# Pensado para recargarse en caliente (sin reiniciar la app) en fases futuras.
+
+version: 1
+
+twitch:
+  channel: "nombre_del_canal"
+  bot:
+    # Para solo-lectura anónima puedes usar un username tipo justinfan12345 y omitir el token.
+    # Para funciones que requieran auth (p.ej. leer AutoMod) hace falta un usuario y token reales.
+    username: "justinfan12345"
+    oauth_token: "${TWITCH_OAUTH_TOKEN}"   # se lee de variable de entorno, nunca en claro aquí
+
+# --- Detección de mensajes repetidos / spam ---
+dedup:
+  enabled: true
+  mode: similarity            # exact | similarity
+  min_repeats_to_group: 2     # a partir de cuántas apariciones se agrupan en una sola línea
+
+  # Solo se usa si mode = exact
+  exact:
+    normalize:
+      case_insensitive: true
+      trim_whitespace: true
+      collapse_spaces: true
+      strip_emotes: true
+      strip_punctuation: false
+
+  # Solo se usa si mode = similarity
+  similarity:
+    algorithm: jaro_winkler    # jaro_winkler | levenshtein
+    threshold: 0.85            # 0.0–1.0, a partir de qué parecido se consideran "el mismo mensaje"
+    normalize:
+      case_insensitive: true
+      strip_emotes: true
+
+  window:
+    max_messages: 50           # comparar solo contra los últimos N mensajes...
+    max_age_seconds: 30        # ...o los de los últimos T segundos (lo que se cumpla antes)
+
+# --- Frases baneables ---
+banned_phrases:
+  enabled: true
+  sync_with_automod: false     # true = añade también los "blocked terms" del AutoMod de Twitch (requiere permisos de moderador)
+
+  rules:
+    - id: insulto-ejemplo
+      type: exact               # exact | contains | regex
+      value: "palabra_exacta"
+      case_sensitive: false
+      severity: high             # low | medium | high
+
+    - id: spam-enlaces
+      type: regex
+      value: "(https?://)?bit\\.ly/\\w+"
+      severity: medium
+
+  # Estilo visual según severidad
+  style:
+    high:
+      background: "#ff4d4d"
+      icon: "🚫"
+    medium:
+      background: "#ffb84d"
+      icon: "⚠️"
+    low:
+      background: "#fff3b0"
+      icon: "ℹ️"
+
+# --- Resaltado temático (palabras clave / usuarios / regex) ---
+highlight:
+  enabled: true
+  rules:
+    - id: personas-destacadas
+      type: user_list          # user_list | keyword | regex
+      values: ["fulanito", "menganito"]
+      color: "#7c5cff"
+      priority: 10             # si varias reglas coinciden, gana la de mayor prioridad
+
+    - id: tema-boss
+      type: keyword
+      values: ["boss", "jefe final"]
+      color: "#4caf50"
+      priority: 5
+      case_sensitive: false
+
+    - id: preguntas
+      type: regex
+      values: ["\\?$"]
+      color: "#2196f3"
+      priority: 1
+
+# --- Interfaz ---
+ui:
+  theme: dark                  # dark | light
+  font_size: 16
+  max_visible_messages: 200
+  show_timestamps: true
