@@ -32,6 +32,15 @@ def env(name: str, default: str | None = None, required: bool = False) -> str | 
     return value
 
 
+def ensure_ok(resp: requests.Response, context: str) -> None:
+    if resp.ok:
+        return
+    body = resp.text.strip()
+    if len(body) > 2000:
+        body = body[:2000] + "... (truncado)"
+    raise JiraCloneError(f"{context}: HTTP {resp.status_code} {resp.reason}\n{body}")
+
+
 def build_source_session() -> tuple[requests.Session, str]:
     url = env("SRC_JIRA_URL", required=True).rstrip("/")
     email = env("SRC_JIRA_EMAIL", required=True)
@@ -39,6 +48,9 @@ def build_source_session() -> tuple[requests.Session, str]:
     session = requests.Session()
     session.auth = (email, token)
     session.headers["Accept"] = "application/json"
+    user_agent = env("SRC_JIRA_USER_AGENT")
+    if user_agent:
+        session.headers["User-Agent"] = user_agent
     return session, url
 
 
@@ -56,6 +68,9 @@ def build_target_session() -> tuple[requests.Session, str]:
         raise JiraCloneError(f"DST_JIRA_AUTH_TYPE desconocido: {auth_type!r} (usa 'bearer' o 'basic')")
     session.headers["Accept"] = "application/json"
     session.headers["Content-Type"] = "application/json"
+    user_agent = env("DST_JIRA_USER_AGENT")
+    if user_agent:
+        session.headers["User-Agent"] = user_agent
 
     ca_bundle = env("DST_JIRA_CA_BUNDLE")
     if ca_bundle:
@@ -81,7 +96,7 @@ def fetch_source_issue(session: requests.Session, base_url: str, key: str) -> di
     )
     if resp.status_code == 404:
         raise JiraCloneError(f"No se encontró la incidencia {key} en {base_url}")
-    resp.raise_for_status()
+    ensure_ok(resp, f"Error leyendo {key} de {base_url}")
     return resp.json()
 
 
@@ -90,7 +105,7 @@ def discover_key_client_field_id(session: requests.Session, base_url: str) -> st
     if override:
         return override
     resp = session.get(f"{base_url}/rest/api/2/field", timeout=30)
-    resp.raise_for_status()
+    ensure_ok(resp, f"Error listando campos de {base_url}")
     for field in resp.json():
         if field.get("name", "").strip().lower() == KEY_CLIENT_FIELD_NAME.lower():
             return field["id"]
@@ -102,8 +117,7 @@ def discover_key_client_field_id(session: requests.Session, base_url: str) -> st
 
 def create_target_issue(session: requests.Session, base_url: str, payload: dict) -> dict:
     resp = session.post(f"{base_url}/rest/api/2/issue", json=payload, timeout=30)
-    if not resp.ok:
-        raise JiraCloneError(f"Jira destino devolvió {resp.status_code}: {resp.text}")
+    ensure_ok(resp, f"Error creando la incidencia en {base_url}")
     return resp.json()
 
 

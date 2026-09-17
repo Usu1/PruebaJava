@@ -39,6 +39,7 @@ Ver `.env.example`. Resumen:
 | `DST_PROJECT` | Project key destino por defecto. |
 | `DST_JIRA_KEY_CLIENT_FIELD` | Id del custom field "Key Client" en destino (p. ej. `customfield_10500`). Si se deja vacío, se busca automáticamente por nombre. |
 | `DST_JIRA_CA_BUNDLE` | Solo si el destino usa certificado autofirmado/CA interna (`SSLCertVerificationError`). Ruta a un `.pem` con la CA, o `false` para desactivar la verificación (inseguro). |
+| `SRC_JIRA_USER_AGENT`, `DST_JIRA_USER_AGENT` | Solo si un proxy/WAF corporativo devuelve `403` al ver el `User-Agent` por defecto de `requests`. |
 
 ## Certificado autofirmado / CA interna en el destino
 
