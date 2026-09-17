@@ -38,7 +38,10 @@ def ensure_ok(resp: requests.Response, context: str) -> None:
     body = resp.text.strip()
     if len(body) > 2000:
         body = body[:2000] + "... (truncado)"
-    raise JiraCloneError(f"{context}: HTTP {resp.status_code} {resp.reason}\n{body}")
+    server_header = resp.headers.get("Server", "?")
+    raise JiraCloneError(
+        f"{context}: HTTP {resp.status_code} {resp.reason} (Server: {server_header})\n{body}"
+    )
 
 
 def build_source_session() -> tuple[requests.Session, str]:
