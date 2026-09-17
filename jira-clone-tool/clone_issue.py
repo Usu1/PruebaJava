@@ -68,6 +68,9 @@ def build_target_session() -> tuple[requests.Session, str]:
         raise JiraCloneError(f"DST_JIRA_AUTH_TYPE desconocido: {auth_type!r} (usa 'bearer' o 'basic')")
     session.headers["Accept"] = "application/json"
     session.headers["Content-Type"] = "application/json"
+    # Requerido por Jira Server/Data Center para peticiones de escritura (POST/PUT/DELETE)
+    # que no vienen de una sesión de navegador; si no, responde 403 "XSRF check failed".
+    session.headers["X-Atlassian-Token"] = "no-check"
     user_agent = env("DST_JIRA_USER_AGENT")
     if user_agent:
         session.headers["User-Agent"] = user_agent
