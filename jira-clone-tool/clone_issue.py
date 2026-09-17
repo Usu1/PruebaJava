@@ -12,6 +12,7 @@ Uso:
     python clone_issue.py ECDMG-54 --dry-run
 """
 import argparse
+import datetime
 import os
 import sys
 
@@ -21,6 +22,9 @@ from dotenv import load_dotenv
 KEY_CLIENT_FIELD_NAME = "Key Client"
 DEFAULT_ISSUE_TYPE = "Feature Request"
 DEFAULT_TRANSITION_TO = "Previous Study"
+DEFAULT_DEMAND_TYPE = "ondemand"
+DEFAULT_DEMAND_ORIGIN = "Client"
+DEFAULT_DEMAND_PRIORITY = "LOW"
 
 
 class JiraCloneError(Exception):
@@ -187,6 +191,60 @@ def transition_issue(session: requests.Session, base_url: str, issue_key: str, t
     ensure_ok(resp, f"Error aplicando la transición '{target_status}' a {issue_key} en {base_url}")
 
 
+def create_demand(
+    session: requests.Session,
+    base_url: str,
+    project_key: str,
+    demand_id: str,
+    title: str,
+    description: str,
+    assigned_date: str,
+    component: str = "",
+    priority: str = DEFAULT_DEMAND_PRIORITY,
+    demand_type: str = DEFAULT_DEMAND_TYPE,
+    origin: str = DEFAULT_DEMAND_ORIGIN,
+) -> None:
+    payload = {
+        "demandId": demand_id,
+        "demandType": demand_type,
+        "demandOriginType": origin,
+        "projectKey": project_key,
+        "component": component,
+        "version": "",
+        "title": title,
+        "description": description,
+        "priority": priority,
+        "dateFromFee": "",
+        "dateToFee": "",
+        "assignedDate": assigned_date,
+        "estimationClientDate": "",
+        "firstDeliveryDate": "",
+        "finalDeliveryDate": "",
+        "hiringHours": "0",
+        "hiringLocalCurrency": "0",
+        "currency": "EUR",
+        "application": "",
+        "objectType": "",
+        "label": "",
+        "versionIssue": "",
+        "issueType": "",
+    }
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": (
+            f"{base_url}/projects/{project_key}"
+            "?selectedItem=com.atlassian.jira.jira-projects-plugin:gestion-demanda-web-panel"
+        ),
+    }
+    resp = session.post(
+        f"{base_url}/rest/demands/1/demandTable/create",
+        json=payload,
+        headers=headers,
+        timeout=30,
+    )
+    ensure_ok(resp, f"Error creando la demanda '{demand_id}' en el proyecto {project_key} de {base_url}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("source_key", help="Key de la incidencia origen, p. ej. ECDMG-54")
@@ -214,6 +272,21 @@ def parse_args() -> argparse.Namespace:
         "--no-transition",
         action="store_true",
         help="No cambiar el estado de la incidencia tras crearla.",
+    )
+    parser.add_argument(
+        "--no-demand",
+        action="store_true",
+        help="No crear la Demand asociada tras la transición de estado.",
+    )
+    parser.add_argument(
+        "--demand-priority",
+        default=DEFAULT_DEMAND_PRIORITY,
+        help="Priority de la Demand (por defecto: %(default)r).",
+    )
+    parser.add_argument(
+        "--demand-component",
+        default="",
+        help="Component de la Demand (por defecto vacío, como en el formulario manual).",
     )
     parser.add_argument(
         "--dry-run",
@@ -270,6 +343,21 @@ def main() -> int:
         if not args.no_transition:
             transition_issue(dst_session, dst_url, new_key, args.transition_to)
             print(f"Estado de {new_key} cambiado a '{args.transition_to}'")
+
+        if not args.no_demand:
+            assigned_date = datetime.date.today().isoformat()
+            create_demand(
+                dst_session,
+                dst_url,
+                args.target_project,
+                args.source_key,
+                summary,
+                description,
+                assigned_date,
+                component=args.demand_component,
+                priority=args.demand_priority,
+            )
+            print(f"Demanda '{args.source_key}' creada en el proyecto {args.target_project}")
 
         return 0
 
