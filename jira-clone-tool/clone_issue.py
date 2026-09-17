@@ -127,17 +127,15 @@ def discover_key_client_field_id(session: requests.Session, base_url: str) -> st
 
 def resolve_issue_type(session: requests.Session, base_url: str, project_key: str, desired_name: str) -> str:
     resp = session.get(
-        f"{base_url}/rest/api/2/issue/createmeta",
-        params={"projectKeys": project_key, "expand": "projects.issuetypes"},
+        f"{base_url}/rest/api/2/issue/createmeta/{project_key}/issuetypes",
         timeout=30,
     )
-    ensure_ok(resp, f"Error consultando tipos de incidencia de {project_key} en {base_url}")
-    projects = resp.json().get("projects", [])
-    if not projects:
+    if resp.status_code == 404:
         raise JiraCloneError(
             f"El proyecto '{project_key}' no existe en {base_url} o el usuario no tiene permiso para crear incidencias en él."
         )
-    available = [it["name"] for it in projects[0].get("issuetypes", [])]
+    ensure_ok(resp, f"Error consultando tipos de incidencia de {project_key} en {base_url}")
+    available = [it["name"] for it in resp.json().get("values", [])]
     for name in available:
         if name.strip().lower() == desired_name.strip().lower():
             return name
