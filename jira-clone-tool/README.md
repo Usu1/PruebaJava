@@ -27,6 +27,8 @@ Opciones:
 - `--target-project IAMNAM` — project key destino (por defecto, `DST_PROJECT` del `.env`, o `IAMNAM`).
 - `--component ECDMG` — component a asignar en destino (por defecto, el project key de la incidencia origen).
 - `--issue-type "Feature Request"` — issue type en destino (por defecto, siempre `"Feature Request"`, independientemente del tipo que tenga la incidencia en origen).
+- `--transition-to "Previous Study"` — estado al que pasar la incidencia justo después de crearla (por defecto `"Previous Study"`).
+- `--no-transition` — no cambiar el estado tras crear la incidencia.
 - `--dry-run` — imprime el payload que se enviaría, sin crear nada.
 
 ## Configuración (`.env`)

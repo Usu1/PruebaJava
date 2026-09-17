@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 KEY_CLIENT_FIELD_NAME = "Key Client"
 DEFAULT_ISSUE_TYPE = "Feature Request"
+DEFAULT_TRANSITION_TO = "Previous Study"
 
 
 class JiraCloneError(Exception):
@@ -159,6 +160,33 @@ def create_target_issue(session: requests.Session, base_url: str, payload: dict)
     return resp.json()
 
 
+def transition_issue(session: requests.Session, base_url: str, issue_key: str, target_status: str) -> None:
+    resp = session.get(f"{base_url}/rest/api/2/issue/{issue_key}/transitions", timeout=30)
+    ensure_ok(resp, f"Error consultando transiciones de {issue_key} en {base_url}")
+    transitions = resp.json().get("transitions", [])
+    match = next(
+        (
+            t
+            for t in transitions
+            if t["name"].strip().lower() == target_status.strip().lower()
+            or t["to"]["name"].strip().lower() == target_status.strip().lower()
+        ),
+        None,
+    )
+    if match is None:
+        available = ", ".join(t["name"] for t in transitions) or "(ninguna)"
+        raise JiraCloneError(
+            f"No hay una transición a '{target_status}' disponible para {issue_key} desde su estado actual. "
+            f"Transiciones disponibles: {available}."
+        )
+    resp = session.post(
+        f"{base_url}/rest/api/2/issue/{issue_key}/transitions",
+        json={"transition": {"id": match["id"]}},
+        timeout=30,
+    )
+    ensure_ok(resp, f"Error aplicando la transición '{target_status}' a {issue_key} en {base_url}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("source_key", help="Key de la incidencia origen, p. ej. ECDMG-54")
@@ -176,6 +204,16 @@ def parse_args() -> argparse.Namespace:
         "--issue-type",
         default=DEFAULT_ISSUE_TYPE,
         help="Issue type en el destino (por defecto: %(default)r, independientemente del tipo en origen).",
+    )
+    parser.add_argument(
+        "--transition-to",
+        default=DEFAULT_TRANSITION_TO,
+        help="Estado al que pasar la incidencia tras crearla (por defecto: %(default)r).",
+    )
+    parser.add_argument(
+        "--no-transition",
+        action="store_true",
+        help="No cambiar el estado de la incidencia tras crearla.",
     )
     parser.add_argument(
         "--dry-run",
@@ -228,6 +266,11 @@ def main() -> int:
         created = create_target_issue(dst_session, dst_url, payload)
         new_key = created["key"]
         print(f"Creada {new_key} en {dst_url}/browse/{new_key} (a partir de {args.source_key})")
+
+        if not args.no_transition:
+            transition_issue(dst_session, dst_url, new_key, args.transition_to)
+            print(f"Estado de {new_key} cambiado a '{args.transition_to}'")
+
         return 0
 
     except JiraCloneError as exc:
