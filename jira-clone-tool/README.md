@@ -4,8 +4,9 @@ Clona una incidencia de un Jira origen (p. ej. `madrid-es.atlassian.net`) a un
 Jira destino (p. ej. `jira.indra.es`), copiando resumen (prefijado con
 `[KEY-ORIGEN]`) y descripción, asignándola al usuario del token destino, y
 rellenando el campo **Key Client** del destino con la key de la incidencia
-origen. Tras crearla, cambia su estado (por defecto a "Previous Study") y
-crea la **Demand** asociada en el panel de gestión de demanda del proyecto.
+origen. Tras crearla, cambia su estado (por defecto a "Previous Study"); el
+propio workflow de Jira se encarga de generar la Demand asociada al hacer esa
+transición, así que el script no la crea explícitamente.
 
 ## Instalación
 
@@ -30,25 +31,7 @@ Opciones:
 - `--issue-type "Feature Request"` — issue type en destino (por defecto, siempre `"Feature Request"`, independientemente del tipo que tenga la incidencia en origen).
 - `--transition-to "Previous Study"` — estado al que pasar la incidencia justo después de crearla (por defecto `"Previous Study"`).
 - `--no-transition` — no cambiar el estado tras crear la incidencia.
-- `--no-demand` — no crear la Demand tras la transición de estado.
-- `--demand-priority "LOW"` — priority de la Demand (por defecto `"LOW"`).
-- `--demand-component "ECDMG"` — component de la Demand (por defecto vacío).
-- `--dry-run` — imprime el payload que se enviaría, sin crear nada (nota: `--dry-run` sólo aplica al payload de la incidencia, no a la transición ni a la Demand, que no se ejecutan si se corta ahí).
-
-## Demand asociada
-
-Al crear la incidencia, el script también da de alta la "Demand" del panel
-`Gestión de demanda` del proyecto (`POST /rest/demands/1/demandTable/create`),
-con:
-
-- `demandId`: la key de la incidencia origen (p. ej. `ECDMG-54`).
-- `projectKey`: el proyecto destino.
-- `title` / `description`: los mismos que la incidencia creada.
-- `assignedDate`: la fecha de hoy (fecha de creación de la incidencia en destino).
-- `demandType`: `"ondemand"`, `demandOriginType`: `"Client"`, `priority`: `"LOW"` (todos fijos, salvo `priority` y `component`, configurables por CLI).
-
-Este paso requiere que la incidencia ya esté en el estado que habilita el
-panel de gestión de demanda (de ahí que se ejecute después de la transición).
+- `--dry-run` — imprime el payload que se enviaría, sin crear nada (nota: `--dry-run` sólo aplica al payload de la incidencia, no a la transición, que no se ejecuta si se corta ahí).
 
 ## Configuración (`.env`)
 
