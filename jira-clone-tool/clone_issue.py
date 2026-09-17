@@ -111,6 +111,13 @@ def fetch_source_issue(session: requests.Session, base_url: str, key: str) -> di
     return resp.json()
 
 
+def get_current_username(session: requests.Session, base_url: str) -> str:
+    resp = session.get(f"{base_url}/rest/api/2/myself", timeout=30)
+    ensure_ok(resp, f"Error consultando el usuario del token en {base_url}")
+    data = resp.json()
+    return data.get("name") or data["key"]
+
+
 def discover_key_client_field_id(session: requests.Session, base_url: str) -> str:
     override = env("DST_JIRA_KEY_CLIENT_FIELD")
     if override:
@@ -188,6 +195,9 @@ def main() -> int:
 
         fields = source_issue["fields"]
         summary = fields["summary"]
+        prefix = f"[{args.source_key}]"
+        if not summary.startswith(prefix):
+            summary = f"{prefix} {summary}"
         description = fields.get("description") or ""
         source_project_key = fields["project"]["key"]
         component = args.component or source_project_key
@@ -195,6 +205,7 @@ def main() -> int:
         dst_session, dst_url = build_target_session()
         key_client_field_id = discover_key_client_field_id(dst_session, dst_url)
         issue_type = resolve_issue_type(dst_session, dst_url, args.target_project, args.issue_type)
+        assignee = get_current_username(dst_session, dst_url)
 
         payload = {
             "fields": {
@@ -203,6 +214,7 @@ def main() -> int:
                 "description": description,
                 "issuetype": {"name": issue_type},
                 "components": [{"name": component}],
+                "assignee": {"name": assignee},
                 key_client_field_id: args.source_key,
             }
         }

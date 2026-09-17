@@ -1,7 +1,8 @@
 # jira-clone-tool
 
 Clona una incidencia de un Jira origen (p. ej. `madrid-es.atlassian.net`) a un
-Jira destino (p. ej. `jira.indra.es`), copiando resumen y descripción, y
+Jira destino (p. ej. `jira.indra.es`), copiando resumen (prefijado con
+`[KEY-ORIGEN]`) y descripción, asignándola al usuario del token destino, y
 rellenando el campo **Key Client** del destino con la key de la incidencia
 origen.
 
