@@ -19,6 +19,7 @@ import requests
 from dotenv import load_dotenv
 
 KEY_CLIENT_FIELD_NAME = "Key Client"
+DEFAULT_ISSUE_TYPE = "Feature Request"
 
 
 class JiraCloneError(Exception):
@@ -166,8 +167,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--issue-type",
-        default=None,
-        help="Issue type en el destino. Por defecto, el mismo nombre que tenga en el origen.",
+        default=DEFAULT_ISSUE_TYPE,
+        help="Issue type en el destino (por defecto: %(default)r, independientemente del tipo en origen).",
     )
     parser.add_argument(
         "--dry-run",
@@ -190,11 +191,10 @@ def main() -> int:
         description = fields.get("description") or ""
         source_project_key = fields["project"]["key"]
         component = args.component or source_project_key
-        issue_type_candidate = args.issue_type or fields["issuetype"]["name"]
 
         dst_session, dst_url = build_target_session()
         key_client_field_id = discover_key_client_field_id(dst_session, dst_url)
-        issue_type = resolve_issue_type(dst_session, dst_url, args.target_project, issue_type_candidate)
+        issue_type = resolve_issue_type(dst_session, dst_url, args.target_project, args.issue_type)
 
         payload = {
             "fields": {
