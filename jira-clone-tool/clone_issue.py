@@ -71,6 +71,10 @@ def build_target_session() -> tuple[requests.Session, str]:
     # Requerido por Jira Server/Data Center para peticiones de escritura (POST/PUT/DELETE)
     # que no vienen de una sesión de navegador; si no, responde 403 "XSRF check failed".
     session.headers["X-Atlassian-Token"] = "no-check"
+    # Algunos proxys/WAF delante de Jira validan Origin/Referer en peticiones de
+    # escritura y devuelven el mismo "XSRF check failed" si no los ven.
+    session.headers["Origin"] = url
+    session.headers["Referer"] = f"{url}/"
     user_agent = env("DST_JIRA_USER_AGENT")
     if user_agent:
         session.headers["User-Agent"] = user_agent
