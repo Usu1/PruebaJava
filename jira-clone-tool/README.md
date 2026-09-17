@@ -38,6 +38,34 @@ Ver `.env.example`. Resumen:
 | `DST_JIRA_URL`, `DST_JIRA_AUTH_TYPE`, `DST_JIRA_USER`, `DST_JIRA_TOKEN` | Jira destino. `DST_JIRA_AUTH_TYPE` es `bearer` (PAT) o `basic`. |
 | `DST_PROJECT` | Project key destino por defecto. |
 | `DST_JIRA_KEY_CLIENT_FIELD` | Id del custom field "Key Client" en destino (p. ej. `customfield_10500`). Si se deja vacío, se busca automáticamente por nombre. |
+| `DST_JIRA_CA_BUNDLE` | Solo si el destino usa certificado autofirmado/CA interna (`SSLCertVerificationError`). Ruta a un `.pem` con la CA, o `false` para desactivar la verificación (inseguro). |
+
+## Certificado autofirmado / CA interna en el destino
+
+Si al ejecutar el script ves `SSLCertVerificationError: self-signed certificate in
+certificate chain`, es que `jira.indra.es` (u otro destino corporativo) usa un
+certificado de una CA interna que Windows ya conoce (por eso el navegador no
+se queja) pero que Python no tiene en su propio almacén de confianza
+(`certifi`). Dos formas de arreglarlo, de más a menos cómoda:
+
+1. **Reutilizar el almacén de certificados de Windows** (recomendado):
+   ```
+   .venv\Scripts\python.exe -m pip install pip-system-certs
+   ```
+   Con este paquete instalado en el venv, `requests` usa automáticamente los
+   certificados que Windows ya tiene instalados (incluida la CA interna), sin
+   tocar nada más.
+
+2. **Indicar la CA manualmente**: exporta el certificado raíz interno (tu
+   equipo de IT lo tiene, o lo sacas del almacén de certificados de Windows) a
+   un `.pem` y ponlo en `.env`:
+   ```
+   DST_JIRA_CA_BUNDLE=C:\certs\indra-ca.pem
+   ```
+
+Como último recurso (solo para pruebas puntuales, nunca en uso normal, porque
+el token de autenticación viajaría sin verificar el certificado del
+servidor): `DST_JIRA_CA_BUNDLE=false`.
 
 ## Notas
 

@@ -56,6 +56,20 @@ def build_target_session() -> tuple[requests.Session, str]:
         raise JiraCloneError(f"DST_JIRA_AUTH_TYPE desconocido: {auth_type!r} (usa 'bearer' o 'basic')")
     session.headers["Accept"] = "application/json"
     session.headers["Content-Type"] = "application/json"
+
+    ca_bundle = env("DST_JIRA_CA_BUNDLE")
+    if ca_bundle:
+        if ca_bundle.strip().lower() in ("false", "0", "no"):
+            session.verify = False
+            requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+            print(
+                "Aviso: verificación TLS desactivada (DST_JIRA_CA_BUNDLE=false). "
+                "El token de autenticación viaja sin comprobar el certificado del servidor.",
+                file=sys.stderr,
+            )
+        else:
+            session.verify = ca_bundle
+
     return session, url
 
 
