@@ -346,18 +346,27 @@ def main() -> int:
 
         if not args.no_demand:
             assigned_date = datetime.date.today().isoformat()
-            create_demand(
-                dst_session,
-                dst_url,
-                args.target_project,
-                args.source_key,
-                summary,
-                description,
-                assigned_date,
-                component=args.demand_component,
-                priority=args.demand_priority,
-            )
-            print(f"Demanda '{args.source_key}' creada en el proyecto {args.target_project}")
+            try:
+                create_demand(
+                    dst_session,
+                    dst_url,
+                    args.target_project,
+                    args.source_key,
+                    summary,
+                    description,
+                    assigned_date,
+                    component=args.demand_component,
+                    priority=args.demand_priority,
+                )
+                print(f"Demanda '{args.source_key}' creada en el proyecto {args.target_project}")
+            except JiraCloneError as exc:
+                if "is not unique" in str(exc):
+                    print(
+                        f"Aviso: ya existía una demanda '{args.source_key}' en {args.target_project}; no se ha duplicado.",
+                        file=sys.stderr,
+                    )
+                else:
+                    raise
 
         return 0
 
