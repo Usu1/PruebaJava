@@ -125,6 +125,28 @@ def discover_key_client_field_id(session: requests.Session, base_url: str) -> st
     )
 
 
+def resolve_issue_type(session: requests.Session, base_url: str, project_key: str, desired_name: str) -> str:
+    resp = session.get(
+        f"{base_url}/rest/api/2/issue/createmeta",
+        params={"projectKeys": project_key, "expand": "projects.issuetypes"},
+        timeout=30,
+    )
+    ensure_ok(resp, f"Error consultando tipos de incidencia de {project_key} en {base_url}")
+    projects = resp.json().get("projects", [])
+    if not projects:
+        raise JiraCloneError(
+            f"El proyecto '{project_key}' no existe en {base_url} o el usuario no tiene permiso para crear incidencias en él."
+        )
+    available = [it["name"] for it in projects[0].get("issuetypes", [])]
+    for name in available:
+        if name.strip().lower() == desired_name.strip().lower():
+            return name
+    raise JiraCloneError(
+        f"El tipo de incidencia '{desired_name}' no es válido en el proyecto '{project_key}'. "
+        f"Tipos disponibles: {', '.join(available) or '(ninguno)'}. Usa --issue-type para indicar uno."
+    )
+
+
 def create_target_issue(session: requests.Session, base_url: str, payload: dict) -> dict:
     resp = session.post(f"{base_url}/rest/api/2/issue", json=payload, timeout=30)
     ensure_ok(resp, f"Error creando la incidencia en {base_url}")
@@ -170,10 +192,11 @@ def main() -> int:
         description = fields.get("description") or ""
         source_project_key = fields["project"]["key"]
         component = args.component or source_project_key
-        issue_type = args.issue_type or fields["issuetype"]["name"]
+        issue_type_candidate = args.issue_type or fields["issuetype"]["name"]
 
         dst_session, dst_url = build_target_session()
         key_client_field_id = discover_key_client_field_id(dst_session, dst_url)
+        issue_type = resolve_issue_type(dst_session, dst_url, args.target_project, issue_type_candidate)
 
         payload = {
             "fields": {
