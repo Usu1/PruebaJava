@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 KEY_CLIENT_FIELD_NAME = "Key Client"
 DEFAULT_ISSUE_TYPE = "Feature Request"
 DEFAULT_TRANSITION_TO = "Previous Study"
+DEFAULT_VERSION = "Evolutivo_P3"
 
 
 class JiraCloneError(Exception):
@@ -154,6 +155,19 @@ def resolve_issue_type(session: requests.Session, base_url: str, project_key: st
     )
 
 
+def resolve_version(session: requests.Session, base_url: str, project_key: str, desired_name: str, field_label: str) -> str:
+    resp = session.get(f"{base_url}/rest/api/2/project/{project_key}/versions", timeout=30)
+    ensure_ok(resp, f"Error consultando versiones de {project_key} en {base_url}")
+    available = [v["name"] for v in resp.json()]
+    for name in available:
+        if name.strip().lower() == desired_name.strip().lower():
+            return name
+    raise JiraCloneError(
+        f"La versión '{desired_name}' no existe en el proyecto '{project_key}' (campo {field_label}). "
+        f"Versiones disponibles: {', '.join(available) or '(ninguna)'}."
+    )
+
+
 def create_target_issue(session: requests.Session, base_url: str, payload: dict) -> dict:
     resp = session.post(f"{base_url}/rest/api/2/issue", json=payload, timeout=30)
     ensure_ok(resp, f"Error creando la incidencia en {base_url}")
@@ -206,6 +220,16 @@ def parse_args() -> argparse.Namespace:
         help="Issue type en el destino (por defecto: %(default)r, independientemente del tipo en origen).",
     )
     parser.add_argument(
+        "--fix-version",
+        default=DEFAULT_VERSION,
+        help="Fix Version/s en el destino (por defecto: %(default)r). Vacío ('') para no rellenarlo.",
+    )
+    parser.add_argument(
+        "--affected-version",
+        default=DEFAULT_VERSION,
+        help="Affects Version/s en el destino (por defecto: %(default)r). Vacío ('') para no rellenarlo.",
+    )
+    parser.add_argument(
         "--transition-to",
         default=DEFAULT_TRANSITION_TO,
         help="Estado al que pasar la incidencia tras crearla (por defecto: %(default)r).",
@@ -245,17 +269,27 @@ def main() -> int:
         issue_type = resolve_issue_type(dst_session, dst_url, args.target_project, args.issue_type)
         assignee = get_current_username(dst_session, dst_url)
 
-        payload = {
-            "fields": {
-                "project": {"key": args.target_project},
-                "summary": summary,
-                "description": description,
-                "issuetype": {"name": issue_type},
-                "components": [{"name": component}],
-                "assignee": {"name": assignee},
-                key_client_field_id: args.source_key,
-            }
+        payload_fields = {
+            "project": {"key": args.target_project},
+            "summary": summary,
+            "description": description,
+            "issuetype": {"name": issue_type},
+            "components": [{"name": component}],
+            "assignee": {"name": assignee},
+            key_client_field_id: args.source_key,
         }
+
+        if args.fix_version:
+            fix_version = resolve_version(dst_session, dst_url, args.target_project, args.fix_version, "Fix Version/s")
+            payload_fields["fixVersions"] = [{"name": fix_version}]
+
+        if args.affected_version:
+            affected_version = resolve_version(
+                dst_session, dst_url, args.target_project, args.affected_version, "Affects Version/s"
+            )
+            payload_fields["versions"] = [{"name": affected_version}]
+
+        payload = {"fields": payload_fields}
 
         if args.dry_run:
             import json
