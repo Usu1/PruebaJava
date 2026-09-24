@@ -113,6 +113,58 @@ def fetch_source_issue(session: requests.Session, base_url: str, key: str) -> di
     return resp.json()
 
 
+def resolve_filter_jql(session: requests.Session, base_url: str, filter_name: str) -> str:
+    resp = session.get(f"{base_url}/rest/api/2/filter/search", params={"filterName": filter_name}, timeout=30)
+    ensure_ok(resp, f"Error buscando el filtro '{filter_name}' en {base_url}")
+    matches = [
+        f for f in resp.json().get("values", []) if f["name"].strip().lower() == filter_name.strip().lower()
+    ]
+    if not matches:
+        raise JiraCloneError(
+            f"No se encontró un filtro llamado '{filter_name}' en {base_url} visible para el usuario del token "
+            "(revisa el nombre exacto y que el filtro esté compartido con ese usuario)."
+        )
+    if len(matches) > 1:
+        raise JiraCloneError(
+            f"Hay varios filtros llamados '{filter_name}' en {base_url}; usa --from-jql con el JQL exacto en su lugar."
+        )
+    return matches[0]["jql"]
+
+
+def search_issue_keys(session: requests.Session, base_url: str, jql: str) -> list[str]:
+    keys: list[str] = []
+    start_at = 0
+    page_size = 50
+    while True:
+        resp = session.get(
+            f"{base_url}/rest/api/2/search",
+            params={"jql": jql, "startAt": start_at, "maxResults": page_size, "fields": "key"},
+            timeout=30,
+        )
+        ensure_ok(resp, f"Error ejecutando la consulta JQL en {base_url}")
+        data = resp.json()
+        issues = data.get("issues", [])
+        keys.extend(issue["key"] for issue in issues)
+        start_at += len(issues)
+        if not issues or start_at >= data.get("total", 0):
+            break
+    return keys
+
+
+def issue_exists_in_target(
+    session: requests.Session, base_url: str, project_key: str, key_client_field_id: str, source_key: str
+) -> bool:
+    field_number = key_client_field_id.removeprefix("customfield_")
+    jql = f'project = "{project_key}" AND cf[{field_number}] = "{source_key}"'
+    resp = session.get(
+        f"{base_url}/rest/api/2/search",
+        params={"jql": jql, "maxResults": 1, "fields": "key"},
+        timeout=30,
+    )
+    ensure_ok(resp, f"Error comprobando si '{source_key}' ya existe en {project_key} de {base_url}")
+    return resp.json().get("total", 0) > 0
+
+
 def get_current_username(session: requests.Session, base_url: str) -> str:
     resp = session.get(f"{base_url}/rest/api/2/myself", timeout=30)
     ensure_ok(resp, f"Error consultando el usuario del token en {base_url}")
@@ -203,7 +255,20 @@ def transition_issue(session: requests.Session, base_url: str, issue_key: str, t
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("source_key", help="Key de la incidencia origen, p. ej. ECDMG-54")
+    parser.add_argument(
+        "source_key", nargs="?", default=None, help="Key de una única incidencia origen, p. ej. ECDMG-54"
+    )
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument(
+        "--from-filter",
+        default=None,
+        help="Nombre de un filtro guardado en el Jira origen; se clona cada resultado que no exista ya en destino.",
+    )
+    source_group.add_argument(
+        "--from-jql",
+        default=None,
+        help="JQL a ejecutar en el Jira origen; se clona cada resultado que no exista ya en destino.",
+    )
     parser.add_argument(
         "--target-project",
         default=os.environ.get("DST_PROJECT", "IAMNAM"),
@@ -244,7 +309,70 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Muestra el payload que se enviaría al Jira destino sin crear nada.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    sources_given = sum(1 for v in (args.source_key, args.from_filter, args.from_jql) if v)
+    if sources_given != 1:
+        parser.error("indica exactamente uno de: source_key, --from-filter o --from-jql")
+
+    return args
+
+
+def clone_one_issue(
+    src_session: requests.Session,
+    src_url: str,
+    dst_session: requests.Session,
+    dst_url: str,
+    args: argparse.Namespace,
+    source_key: str,
+    issue_type: str,
+    key_client_field_id: str,
+    fix_version: str | None,
+    affected_version: str | None,
+    assignee: str,
+) -> str | None:
+    source_issue = fetch_source_issue(src_session, src_url, source_key)
+
+    fields = source_issue["fields"]
+    summary = fields["summary"]
+    prefix = f"[{source_key}]"
+    if not summary.startswith(prefix):
+        summary = f"{prefix} {summary}"
+    description = fields.get("description") or ""
+    source_project_key = fields["project"]["key"]
+    component = args.component or source_project_key
+
+    payload_fields = {
+        "project": {"key": args.target_project},
+        "summary": summary,
+        "description": description,
+        "issuetype": {"name": issue_type},
+        "components": [{"name": component}],
+        "assignee": {"name": assignee},
+        key_client_field_id: source_key,
+    }
+    if fix_version:
+        payload_fields["fixVersions"] = [{"name": fix_version}]
+    if affected_version:
+        payload_fields["versions"] = [{"name": affected_version}]
+
+    payload = {"fields": payload_fields}
+
+    if args.dry_run:
+        import json
+
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return None
+
+    created = create_target_issue(dst_session, dst_url, payload)
+    new_key = created["key"]
+    print(f"Creada {new_key} en {dst_url}/browse/{new_key} (a partir de {source_key})")
+
+    if not args.no_transition:
+        transition_issue(dst_session, dst_url, new_key, args.transition_to)
+        print(f"Estado de {new_key} cambiado a '{args.transition_to}'")
+
+    return new_key
 
 
 def main() -> int:
@@ -253,59 +381,70 @@ def main() -> int:
 
     try:
         src_session, src_url = build_source_session()
-        source_issue = fetch_source_issue(src_session, src_url, args.source_key)
-
-        fields = source_issue["fields"]
-        summary = fields["summary"]
-        prefix = f"[{args.source_key}]"
-        if not summary.startswith(prefix):
-            summary = f"{prefix} {summary}"
-        description = fields.get("description") or ""
-        source_project_key = fields["project"]["key"]
-        component = args.component or source_project_key
-
         dst_session, dst_url = build_target_session()
+
         key_client_field_id = discover_key_client_field_id(dst_session, dst_url)
         issue_type = resolve_issue_type(dst_session, dst_url, args.target_project, args.issue_type)
         assignee = get_current_username(dst_session, dst_url)
+        fix_version = (
+            resolve_version(dst_session, dst_url, args.target_project, args.fix_version, "Fix Version/s")
+            if args.fix_version
+            else None
+        )
+        affected_version = (
+            resolve_version(dst_session, dst_url, args.target_project, args.affected_version, "Affects Version/s")
+            if args.affected_version
+            else None
+        )
 
-        payload_fields = {
-            "project": {"key": args.target_project},
-            "summary": summary,
-            "description": description,
-            "issuetype": {"name": issue_type},
-            "components": [{"name": component}],
-            "assignee": {"name": assignee},
-            key_client_field_id: args.source_key,
-        }
+        batch_mode = not args.source_key
+        if args.source_key:
+            source_keys = [args.source_key]
+        else:
+            jql = resolve_filter_jql(src_session, src_url, args.from_filter) if args.from_filter else args.from_jql
+            source_keys = search_issue_keys(src_session, src_url, jql)
+            print(f"La consulta ha devuelto {len(source_keys)} incidencia(s) en el origen.")
+            if not source_keys:
+                return 0
 
-        if args.fix_version:
-            fix_version = resolve_version(dst_session, dst_url, args.target_project, args.fix_version, "Fix Version/s")
-            payload_fields["fixVersions"] = [{"name": fix_version}]
+        created_count = 0
+        skipped_count = 0
+        failed_count = 0
 
-        if args.affected_version:
-            affected_version = resolve_version(
-                dst_session, dst_url, args.target_project, args.affected_version, "Affects Version/s"
-            )
-            payload_fields["versions"] = [{"name": affected_version}]
+        for source_key in source_keys:
+            try:
+                if batch_mode and issue_exists_in_target(
+                    dst_session, dst_url, args.target_project, key_client_field_id, source_key
+                ):
+                    print(f"{source_key}: ya existe en {args.target_project}, se omite.")
+                    skipped_count += 1
+                    continue
 
-        payload = {"fields": payload_fields}
+                new_key = clone_one_issue(
+                    src_session,
+                    src_url,
+                    dst_session,
+                    dst_url,
+                    args,
+                    source_key,
+                    issue_type,
+                    key_client_field_id,
+                    fix_version,
+                    affected_version,
+                    assignee,
+                )
+                if new_key:
+                    created_count += 1
+            except JiraCloneError as exc:
+                if not batch_mode:
+                    raise
+                failed_count += 1
+                print(f"{source_key}: error - {exc}", file=sys.stderr)
 
-        if args.dry_run:
-            import json
+        if batch_mode:
+            print(f"Resumen: {created_count} creada(s), {skipped_count} ya existía(n), {failed_count} con error.")
 
-            print(json.dumps(payload, indent=2, ensure_ascii=False))
-            return 0
-
-        created = create_target_issue(dst_session, dst_url, payload)
-        new_key = created["key"]
-        print(f"Creada {new_key} en {dst_url}/browse/{new_key} (a partir de {args.source_key})")
-
-        if not args.no_transition:
-            transition_issue(dst_session, dst_url, new_key, args.transition_to)
-            print(f"Estado de {new_key} cambiado a '{args.transition_to}'")
-
-        return 0
+        return 1 if failed_count else 0
 
     except JiraCloneError as exc:
         print(f"Error: {exc}", file=sys.stderr)

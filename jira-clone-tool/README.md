@@ -20,12 +20,32 @@ cp .env.example .env
 
 ## Uso
 
+Una incidencia concreta:
+
 ```bash
 python clone_issue.py ECDMG-54
 ```
 
+Por lote, a partir de un filtro guardado en el Jira origen (clona cada
+resultado que no exista ya en destino — comprobado por el campo Key Client —
+y sigue con los demás aunque alguno falle, imprimiendo un resumen al final):
+
+```bash
+python clone_issue.py --from-filter "Filtro_para_creacion"
+```
+
+O con un JQL directo, sin depender de un filtro guardado:
+
+```bash
+python clone_issue.py --from-jql 'project in (ECDMG, OTRO) AND issuetype in ("Solicitud de Desarrollo", "Análisis", "Tarea de Apoyo") AND created >= -1d'
+```
+
+`source_key`, `--from-filter` y `--from-jql` son mutuamente excluyentes — hay
+que indicar exactamente uno.
+
 Opciones:
 
+- `--from-filter NOMBRE` / `--from-jql "JQL"` — modo por lote (ver arriba).
 - `--target-project IAMNAM` — project key destino (por defecto, `DST_PROJECT` del `.env`, o `IAMNAM`).
 - `--component ECDMG` — component a asignar en destino (por defecto, el project key de la incidencia origen).
 - `--issue-type "Feature Request"` — issue type en destino (por defecto, siempre `"Feature Request"`, independientemente del tipo que tenga la incidencia en origen).
