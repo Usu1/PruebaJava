@@ -160,21 +160,21 @@ def resolve_filter_jql(session: requests.Session, base_url: str, filter_name: st
 
 
 def search_issue_keys(session: requests.Session, base_url: str, jql: str) -> list[str]:
+    # Jira Cloud retiró GET /rest/api/2|3/search en favor de este endpoint,
+    # paginado por cursor (nextPageToken) en vez de startAt/total.
     keys: list[str] = []
-    start_at = 0
-    page_size = 50
+    next_page_token = None
     while True:
-        resp = session.get(
-            f"{base_url}/rest/api/2/search",
-            params={"jql": jql, "startAt": start_at, "maxResults": page_size, "fields": "key"},
-            timeout=30,
-        )
+        body = {"jql": jql, "maxResults": 100, "fields": ["key"]}
+        if next_page_token:
+            body["nextPageToken"] = next_page_token
+        resp = session.post(f"{base_url}/rest/api/3/search/jql", json=body, timeout=30)
         ensure_ok(resp, f"Error ejecutando la consulta JQL en {base_url}")
         data = resp.json()
         issues = data.get("issues", [])
         keys.extend(issue["key"] for issue in issues)
-        start_at += len(issues)
-        if not issues or start_at >= data.get("total", 0):
+        next_page_token = data.get("nextPageToken")
+        if not next_page_token or not issues:
             break
     return keys
 
