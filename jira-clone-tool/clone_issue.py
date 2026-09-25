@@ -404,8 +404,9 @@ def clone_one_issue(
     if args.dry_run:
         import json
 
+        print(f"{source_key}: se crearía con este payload:")
         print(json.dumps(payload, indent=2, ensure_ascii=False))
-        return None
+        return source_key
 
     created = create_target_issue(dst_session, dst_url, payload)
     new_key = created["key"]
@@ -485,7 +486,8 @@ def main() -> int:
                 print(f"{source_key}: error - {exc}", file=sys.stderr)
 
         if batch_mode:
-            print(f"Resumen: {created_count} creada(s), {skipped_count} ya existía(n), {failed_count} con error.")
+            created_label = "se crearían (dry-run)" if args.dry_run else "creada(s)"
+            print(f"Resumen: {created_count} {created_label}, {skipped_count} ya existía(n), {failed_count} con error.")
 
         return 1 if failed_count else 0
 
