@@ -114,15 +114,43 @@ def fetch_source_issue(session: requests.Session, base_url: str, key: str) -> di
 
 
 def resolve_filter_jql(session: requests.Session, base_url: str, filter_name: str) -> str:
-    resp = session.get(f"{base_url}/rest/api/2/filter/search", params={"filterName": filter_name}, timeout=30)
-    ensure_ok(resp, f"Error buscando el filtro '{filter_name}' en {base_url}")
-    matches = [
-        f for f in resp.json().get("values", []) if f["name"].strip().lower() == filter_name.strip().lower()
-    ]
+    candidates = []
+
+    # Filtros propios del usuario del token: más fiable que /filter/search para
+    # filtros privados o no marcados como favoritos.
+    resp = session.get(f"{base_url}/rest/api/2/filter/my", params={"includeFavourites": "true"}, timeout=30)
+    if resp.ok:
+        candidates.extend(resp.json())
+
+    # Respaldo: filtros compartidos con el usuario por otros, buscados por nombre (paginado).
+    start_at = 0
+    while True:
+        resp = session.get(
+            f"{base_url}/rest/api/2/filter/search",
+            params={"filterName": filter_name, "startAt": start_at, "maxResults": 50},
+            timeout=30,
+        )
+        ensure_ok(resp, f"Error buscando el filtro '{filter_name}' en {base_url}")
+        data = resp.json()
+        values = data.get("values", [])
+        candidates.extend(values)
+        start_at += len(values)
+        if not values or start_at >= data.get("total", 0):
+            break
+
+    seen_ids = set()
+    unique_candidates = []
+    for f in candidates:
+        if f["id"] not in seen_ids:
+            seen_ids.add(f["id"])
+            unique_candidates.append(f)
+
+    matches = [f for f in unique_candidates if f["name"].strip().lower() == filter_name.strip().lower()]
     if not matches:
+        names = ", ".join(f["name"] for f in unique_candidates) or "(ninguno)"
         raise JiraCloneError(
-            f"No se encontró un filtro llamado '{filter_name}' en {base_url} visible para el usuario del token "
-            "(revisa el nombre exacto y que el filtro esté compartido con ese usuario)."
+            f"No se encontró un filtro llamado '{filter_name}' en {base_url} visible para el usuario del token. "
+            f"Filtros visibles para ese usuario: {names}."
         )
     if len(matches) > 1:
         raise JiraCloneError(
