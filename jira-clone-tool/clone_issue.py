@@ -182,15 +182,30 @@ def search_issue_keys(session: requests.Session, base_url: str, jql: str) -> lis
 def issue_exists_in_target(
     session: requests.Session, base_url: str, project_key: str, key_client_field_id: str, source_key: str
 ) -> bool:
+    # Key Client es un campo de texto: JQL no admite '=' sobre campos de texto, solo '~'
+    # (búsqueda de texto). Se filtra con '~' y se verifica la coincidencia exacta aquí,
+    # para no dar falsos positivos con incidencias que solo comparten parte del texto.
     field_number = key_client_field_id.removeprefix("customfield_")
-    jql = f'project = "{project_key}" AND cf[{field_number}] = "{source_key}"'
-    resp = session.get(
-        f"{base_url}/rest/api/2/search",
-        params={"jql": jql, "maxResults": 1, "fields": "key"},
-        timeout=30,
-    )
-    ensure_ok(resp, f"Error comprobando si '{source_key}' ya existe en {project_key} de {base_url}")
-    return resp.json().get("total", 0) > 0
+    jql = f'project = "{project_key}" AND cf[{field_number}] ~ "{source_key}"'
+    start_at = 0
+    page_size = 50
+    while True:
+        resp = session.get(
+            f"{base_url}/rest/api/2/search",
+            params={"jql": jql, "startAt": start_at, "maxResults": page_size, "fields": f"key,{key_client_field_id}"},
+            timeout=30,
+        )
+        ensure_ok(resp, f"Error comprobando si '{source_key}' ya existe en {project_key} de {base_url}")
+        data = resp.json()
+        issues = data.get("issues", [])
+        for issue in issues:
+            value = issue.get("fields", {}).get(key_client_field_id)
+            if isinstance(value, str) and value.strip().lower() == source_key.strip().lower():
+                return True
+        start_at += len(issues)
+        if not issues or start_at >= data.get("total", 0):
+            break
+    return False
 
 
 def get_current_username(session: requests.Session, base_url: str) -> str:
